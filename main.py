@@ -12,7 +12,9 @@ from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 # Add the project root directory to the Python path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+#sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+#from src.rag_system import SimpleRAGSystem as RAGSystem
+
 
 from src.rag_system import RAGSystem
 
