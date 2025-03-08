@@ -3,15 +3,22 @@ import os
 import streamlit as st
 from dotenv import load_dotenv
 import time
-from src.rag_system import RAGSystem
+from src.rag_system import RAGSystem, USE_CLAUDE
 
 # Load environment variables
 load_dotenv()
 
-# Check if OpenAI API key is set
+# Check if API keys are set
+if USE_CLAUDE and not os.getenv("ANTHROPIC_API_KEY"):
+    st.error("Error: ANTHROPIC_API_KEY environment variable not set but you're trying to use Claude.")
+    st.stop()
+elif not USE_CLAUDE and not os.getenv("OPENAI_API_KEY"):
+    st.error("Error: OPENAI_API_KEY environment variable not set but you're trying to use OpenAI.")
+    st.stop()
+
+# Check if OpenAI API key exists (needed for embeddings regardless of LLM choice)
 if not os.getenv("OPENAI_API_KEY"):
-    st.error("Error: OPENAI_API_KEY environment variable not set.")
-    st.info("Please create a .env file with your OpenAI API key like this: OPENAI_API_KEY=your-api-key-here")
+    st.error("Error: OPENAI_API_KEY environment variable not set. This is needed for embeddings.")
     st.stop()
 
 # Set page config
@@ -23,24 +30,21 @@ st.set_page_config(
 
 # Title and description
 st.title("📚 PDF RAG Assistant")
-st.markdown("Ask questions about your PDF documents using this RAG (Retrieval Augmented Generation) system.")
+model_name = "Claude 3.7 Sonnet" if USE_CLAUDE else "GPT-3.5 Turbo"
+st.markdown(f"Ask questions about your PDF documents using {model_name}.")
 
 # Sidebar settings
 with st.sidebar:
     st.header("Settings")
+    
+    # Show current LLM provider
+    st.info(f"Currently using: {model_name}\n\nTo switch LLM provider, change the USE_CLAUDE variable in src/rag_system.py")
     
     # PDF folder selection
     pdf_folder = st.text_input("PDF Folder Path", value="data")
     
     # Vector store path
     vector_store = st.text_input("Vector Store Path (optional)", value="")
-    
-    # Model selection
-    model = st.selectbox(
-        "OpenAI Model",
-        options=["gpt-3.5-turbo", "gpt-3.5-turbo-16k", "gpt-4", "gpt-4-turbo"],
-        index=0
-    )
     
     # Temperature setting
     temperature = st.slider("Temperature", min_value=0.0, max_value=1.0, value=0.0, step=0.1)
@@ -59,7 +63,7 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("### About")
     st.markdown(
-        "This app uses OpenAI's models and vector search to answer questions about your PDF documents. "
+        f"This app uses {model_name} and vector search to answer questions about your PDF documents. "
         "Upload PDFs to the specified folder and ask away!"
     )
 
@@ -73,12 +77,11 @@ if "initialized" not in st.session_state:
 
 # Initialize RAG system
 @st.cache_resource(show_spinner=False)
-def initialize_rag(pdf_folder, vector_store_path, model_name, temperature, force_rebuild=False):
-    with st.spinner("Initializing RAG system..."):
+def initialize_rag(pdf_folder, vector_store_path, temperature, force_rebuild=False):
+    with st.spinner(f"Initializing RAG system with {model_name}..."):
         rag = RAGSystem(
             pdf_folder=pdf_folder,
             vector_store_path=vector_store_path if vector_store_path else None,
-            model_name=model_name,
             temperature=temperature
         )
         
@@ -91,8 +94,8 @@ def initialize_rag(pdf_folder, vector_store_path, model_name, temperature, force
 
 # Initialize or reinitialize RAG system
 if not st.session_state.initialized or rebuild:
-    with st.spinner("Initializing RAG system..."):
-        st.session_state.rag = initialize_rag(pdf_folder, vector_store, model, temperature, force_rebuild=rebuild)
+    with st.spinner(f"Initializing RAG system with {model_name}..."):
+        st.session_state.rag = initialize_rag(pdf_folder, vector_store, temperature, force_rebuild=rebuild)
         if st.session_state.rag:
             st.session_state.initialized = True
             if rebuild:
@@ -135,7 +138,7 @@ if st.session_state.initialized:
             full_response = ""
             
             # Show a spinner while processing
-            with st.spinner("Searching documents and generating answer..."):
+            with st.spinner(f"Searching documents and generating answer with {model_name}..."):
                 try:
                     # Query RAG system
                     result = st.session_state.rag.direct_query(prompt)

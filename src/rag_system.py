@@ -6,38 +6,63 @@ from typing import List, Dict, Any
 from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
-from langchain_openai import OpenAIEmbeddings, ChatOpenAI
+from langchain_openai import OpenAIEmbeddings
 from langchain.prompts import ChatPromptTemplate
-from langchain.schema.runnable import RunnablePassthrough
-from langchain.schema.output_parser import StrOutputParser
-from langchain.memory import ConversationBufferMemory
+
+# Import single provider variable to control which LLM to use
+USE_CLAUDE = False  # Set to False to use OpenAI
 
 class RAGSystem:
     def __init__(self, 
                  pdf_folder: str,
                  vector_store_path: str = None,
-                 model_name: str = "gpt-3.5-turbo",
                  temperature: float = 0.0):
         """
-        Initialize a simple RAG system.
+        Initialize a simple RAG system with a single toggle between Claude and OpenAI.
         
         Args:
             pdf_folder: Path to the folder containing PDFs
             vector_store_path: Path to save/load the vector store
-            model_name: OpenAI model to use
             temperature: Temperature for response generation
         """
         self.pdf_folder = pdf_folder
         self.vector_store_path = vector_store_path or os.path.join(pdf_folder, "faiss_index")
-        self.model_name = model_name
         self.temperature = temperature
         
         # Initialize conversation history
         self.conversation_history = []
         
-        # Initialize components
+        # Initialize embeddings (using OpenAI for embeddings regardless of LLM choice)
         self.embeddings = OpenAIEmbeddings()
-        self.llm = ChatOpenAI(model_name=model_name, temperature=temperature)
+        
+        # Initialize the LLM based on the USE_CLAUDE toggle
+        if USE_CLAUDE:
+            # Check if Anthropic API key is set
+            if not os.getenv("ANTHROPIC_API_KEY"):
+                raise ValueError("ANTHROPIC_API_KEY environment variable not set")
+                
+            # Initialize Claude
+            from langchain_anthropic import ChatAnthropic
+            self.llm = ChatAnthropic(
+                model="claude-3-7-sonnet-20250219",
+                temperature=temperature,
+                anthropic_api_key=os.getenv("ANTHROPIC_API_KEY")
+            )
+            print("Using Claude 3.7 Sonnet for responses")
+        else:
+            # Check if OpenAI API key is set
+            if not os.getenv("OPENAI_API_KEY"):
+                raise ValueError("OPENAI_API_KEY environment variable not set")
+                
+            # Initialize OpenAI
+            from langchain_openai import ChatOpenAI
+            self.llm = ChatOpenAI(
+                model_name="gpt-3.5-turbo", 
+                temperature=temperature
+            )
+            print("Using GPT-3.5 Turbo for responses")
+        
+        # Initialize vector store
         self.vector_store = None
         
         # Load vector store if it exists
@@ -113,21 +138,19 @@ class RAGSystem:
         # Format context from documents
         context = "\n\n".join([doc.page_content for doc in docs])
         
-        # Build the prompt
+        # Universal prompt that works well for both models
         prompt_template = """
-        You are a helpful assistant that answers questions based on the provided context from documents.
-        
-        Previous conversation:
-        {chat_history}
-        
+        You are a helpful assistant answering questions based on the provided documents.
+
         Context from documents:
         {context}
-        
+
+        Previous conversation:
+        {chat_history}
+
         Question: {question}
-        
-        Please provide a detailed answer based only on the context provided. If the information is not in the context, 
-        say "I don't have enough information about that in the documents." Include specific references to the source 
-        documents when possible.
+
+        Answer based only on the information in the context. If the information isn't available in the context, say "I don't have enough information about that in the documents." Include specific references to sources when possible.
         """
         
         # Format conversation history for the prompt
